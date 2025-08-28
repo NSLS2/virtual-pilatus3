@@ -85,11 +85,10 @@ import os
 import random
 import shutil
 import signal
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Callable, Awaitable, List, Tuple
+from typing import Dict, Optional, Callable, Awaitable, List
 
 # Used for generating random image data
 import numpy as np
@@ -102,8 +101,8 @@ __version__ = "1.0.0"
 MAX_IMAGES = 999_999
 DEFAULT_IMGPATH = Path("/ramdisk")
 DEFAULT_EXPOSURE_TIME = 1.0
-DEFAULT_EXPOSURE_PERIOD = 1.05   # Must be >= exposure time + readout
-DEFAULT_READOUT_TIME = 0.005     # seconds (simulated)
+DEFAULT_EXPOSURE_PERIOD = 1.05  # Must be >= exposure time + readout
+DEFAULT_READOUT_TIME = 0.005  # seconds (simulated)
 ACK_CODE_OK_GENERIC = 15
 ACK_CODE_IMAGE_DONE = 7
 ACK_CODE_INTERRUPT = 13
@@ -127,6 +126,7 @@ ELEMENT_TRIM_SETTINGS = {
 }
 
 # ------------------ Data Models ------------------
+
 
 @dataclasses.dataclass
 class ThresholdSettings:
@@ -178,16 +178,19 @@ class AcquisitionState:
 
 # ------------------ Simulator Core ------------------
 
+
 class CamserverSimulator:
-    def __init__(self,
-                 xsize: int,
-                 ysize: int,
-                 host: str,
-                 port: int,
-                 terminator: str,
-                 manual_triggers: bool,
-                 readout_time: float,
-                 loop: asyncio.AbstractEventLoop):
+    def __init__(
+        self,
+        xsize: int,
+        ysize: int,
+        host: str,
+        port: int,
+        terminator: str,
+        manual_triggers: bool,
+        readout_time: float,
+        loop: asyncio.AbstractEventLoop,
+    ):
         self.xsize = xsize
         self.ysize = ysize
         self.host = host
@@ -215,7 +218,9 @@ class CamserverSimulator:
         self._register_time = time.time()
 
         # Pre-build command dispatcher
-        self.commands: Dict[str, Callable[[str, asyncio.StreamWriter], Awaitable[None]]] = {
+        self.commands: Dict[
+            str, Callable[[str, asyncio.StreamWriter], Awaitable[None]]
+        ] = {
             "Exposure": self.cmd_exposure,
             "ExtTrigger": self.cmd_ext_trigger,
             "ExtMtrigger": self.cmd_ext_mtrigger,
@@ -308,7 +313,7 @@ class CamserverSimulator:
         if not ext:
             ext = ".raw"
         if total > 1:
-            num = f"{index+1:06d}"
+            num = f"{index + 1:06d}"
             filename = f"{stem}_{num}{ext}"
         else:
             filename = f"{stem}{ext}"
@@ -316,18 +321,21 @@ class CamserverSimulator:
 
     # ---------- Exposure Core ----------
 
-    async def start_exposure_series(self,
-                                    mode: str,
-                                    writer: asyncio.StreamWriter,
-                                    base_name: str):
+    async def start_exposure_series(
+        self, mode: str, writer: asyncio.StreamWriter, base_name: str
+    ):
         async with self.lock:
             if self.state.running or self.state.armed:
                 await self.send_line(writer, ERROR_CODE, "ERR Busy")
                 return
             # Validate period vs exposure time + readout
-            if self.params.exposure_period < self.params.exposure_time + self.readout_time:
-                await self.send_line(writer, ERROR_CODE,
-                                     "ERR ExpPeriod too short for exposure + readout")
+            if (
+                self.params.exposure_period
+                < self.params.exposure_time + self.readout_time
+            ):
+                await self.send_line(
+                    writer, ERROR_CODE, "ERR ExpPeriod too short for exposure + readout"
+                )
                 return
             self.state.running = mode == "Exposure"
             self.state.external_mode = None if mode == "Exposure" else mode
@@ -337,27 +345,47 @@ class CamserverSimulator:
             self.state.last_image_path = None
             self.state.start_time = time.time()
             self._current_base_name = base_name
-            self.logger.info("Starting mode=%s n_images=%d base=%s",
-                             mode, self.params.n_images, base_name)
+            self.logger.info(
+                "Starting mode=%s n_images=%d base=%s",
+                mode,
+                self.params.n_images,
+                base_name,
+            )
 
         # Start messages
         if mode == "Exposure":
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"starting {self.params.exposure_time:.3f} second background: {self.now_str()}")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"starting {self.params.exposure_time:.3f} second background: {self.now_str()}",
+            )
             # Launch internal task
             self.state.task = self.loop.create_task(self._run_internal_series(writer))
         elif mode == "ExtTrigger":
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"starting externally triggered exposure(s): {self.now_str()}")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"starting externally triggered exposure(s): {self.now_str()}",
+            )
             # Wait for external triggers (one per series) -> entire series started by one trigger
-            self.state.task = self.loop.create_task(self._run_ext_trigger_series(writer))
+            self.state.task = self.loop.create_task(
+                self._run_ext_trigger_series(writer)
+            )
         elif mode == "ExtMtrigger":
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"starting externally multi-triggered exposure(s): {self.now_str()}")
-            self.state.task = self.loop.create_task(self._run_ext_mtrigger_series(writer))
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"starting externally multi-triggered exposure(s): {self.now_str()}",
+            )
+            self.state.task = self.loop.create_task(
+                self._run_ext_mtrigger_series(writer)
+            )
         elif mode == "ExtEnable":
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"starting externally enabled exposure(s): {self.now_str()}")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"starting externally enabled exposure(s): {self.now_str()}",
+            )
             self.state.task = self.loop.create_task(self._run_ext_enable_series(writer))
 
     async def _respect_ack_interval(self, img_path: Path, img_index: int):
@@ -389,7 +417,9 @@ class CamserverSimulator:
             if os.path.splitext(img_path)[1] == ".tif":
                 # Create a dummy tif file with random data.
                 # pilatus produces 32 bit signed integer data, but data is generally in a 16 bit range.
-                data = np.random.randint(0, 65536, size=(self.ysize, self.xsize), dtype=np.int32)
+                data = np.random.randint(
+                    0, 65536, size=(self.ysize, self.xsize), dtype=np.int32
+                )
                 tf.imwrite(img_path, data)
             else:
                 # For anything but tif files, just create an empty one.
@@ -410,9 +440,11 @@ class CamserverSimulator:
                 self.state.last_image_path = str(img_path)
             await self._respect_ack_interval(img_path, i)
             # Inter-frame wait: exposure_period - exposure_time - readout
-            remain = (self.params.exposure_period
-                      - self.params.exposure_time
-                      - self.readout_time)
+            remain = (
+                self.params.exposure_period
+                - self.params.exposure_time
+                - self.readout_time
+            )
             if remain > 0 and i < total - 1:
                 await asyncio.sleep(remain)
             async with self.lock:
@@ -452,7 +484,10 @@ class CamserverSimulator:
 
         # If we've not yet transitioned to running but all images triggered, finalize.
         async with self.lock:
-            if self.state.current_index + 1 >= self.params.n_images and self.state.last_image_path:
+            if (
+                self.state.current_index + 1 >= self.params.n_images
+                and self.state.last_image_path
+            ):
                 await self._finalize_series(writer)
 
     async def _run_ext_enable_series(self, writer: asyncio.StreamWriter):
@@ -469,7 +504,10 @@ class CamserverSimulator:
                 await asyncio.sleep(self.params.exposure_period)
         # manual path relies on TRIGGER
         async with self.lock:
-            if self.state.current_index + 1 >= self.params.n_images and self.state.last_image_path:
+            if (
+                self.state.current_index + 1 >= self.params.n_images
+                and self.state.last_image_path
+            ):
                 await self._finalize_series(writer)
 
     async def _inject_trigger(self, single: bool = False):
@@ -479,7 +517,9 @@ class CamserverSimulator:
         For ExtMtrigger / ExtEnable: each trigger fires one exposure.
         """
         async with self.lock:
-            if self.state.aborted or (not self.state.armed and not self.state.external_mode):
+            if self.state.aborted or (
+                not self.state.armed and not self.state.external_mode
+            ):
                 return
             mode = self.state.external_mode
 
@@ -490,7 +530,9 @@ class CamserverSimulator:
                 self.state.armed = False
             # Run same as internal
             dummy_writer = None
-            await self._run_internal_series(dummy_writer)  # writer not needed during steps
+            await self._run_internal_series(
+                dummy_writer
+            )  # writer not needed during steps
         elif mode in ("ExtMtrigger", "ExtEnable"):
             async with self.lock:
                 total = self.params.n_images
@@ -513,7 +555,11 @@ class CamserverSimulator:
                 await self.broadcast_ack(ACK_CODE_IMAGE_DONE, str(img_path))
         # After exposures if finished finalize
         async with self.lock:
-            if not self.state.running and not self.state.armed and self.state.last_image_path:
+            if (
+                not self.state.running
+                and not self.state.armed
+                and self.state.last_image_path
+            ):
                 # Use last writer (none) -> broadcast final ack once only if not already final
                 pass
 
@@ -554,31 +600,39 @@ class CamserverSimulator:
 
     async def cmd_exp_time(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Exposure time set to: {self.params.exposure_time:.3f} sec")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"Exposure time set to: {self.params.exposure_time:.3f} sec",
+            )
             return
         try:
             val = float(args)
             if val <= 0 or val > 60 * 60 * 24 * 60:  # 60 days
                 raise ValueError
             self.params.exposure_time = val
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Exposure time set to: {val:.3f} sec")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, f"Exposure time set to: {val:.3f} sec"
+            )
         except ValueError:
             await self.send_line(writer, ERROR_CODE, "ERR invalid exposure time")
 
     async def cmd_exp_period(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Exposure period set to: {self.params.exposure_period:.3f} sec")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"Exposure period set to: {self.params.exposure_period:.3f} sec",
+            )
             return
         try:
             val = float(args)
             if val <= 0 or val > 60 * 60 * 24 * 60:
                 raise ValueError
             self.params.exposure_period = val
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Exposure period set to: {val:.3f} sec")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, f"Exposure period set to: {val:.3f} sec"
+            )
         except ValueError:
             await self.send_line(writer, ERROR_CODE, "ERR invalid exposure period")
 
@@ -598,7 +652,9 @@ class CamserverSimulator:
 
     async def cmd_n_images(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC, f"N images set to: {self.params.n_images}")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, f"N images set to: {self.params.n_images}"
+            )
             return
         try:
             val = int(args)
@@ -611,31 +667,39 @@ class CamserverSimulator:
 
     async def cmd_delay(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Delay time set to: {self.params.delay:.3f} sec")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"Delay time set to: {self.params.delay:.3f} sec",
+            )
             return
         try:
             val = float(args)
             if val < 0 or val >= 64:
                 raise ValueError
             self.params.delay = val
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Delay time set to: {val:.3f} sec")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, f"Delay time set to: {val:.3f} sec"
+            )
         except ValueError:
             await self.send_line(writer, ERROR_CODE, "ERR invalid delay time")
 
     async def cmd_n_exp_frame(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Exposures per frame set to: {self.params.n_exp_frame}")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"Exposures per frame set to: {self.params.n_exp_frame}",
+            )
             return
         try:
             val = int(args)
             if val < 1:
                 raise ValueError
             self.params.n_exp_frame = val
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Exposures per frame set to: {val}")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, f"Exposures per frame set to: {val}"
+            )
         except ValueError:
             await self.send_line(writer, ERROR_CODE, "ERR invalid NExpFrame")
 
@@ -649,7 +713,9 @@ class CamserverSimulator:
             return
         toks = args.split()
         if len(toks) % 2 != 0:
-            await self.send_line(writer, ERROR_CODE, "ERR MXsettings requires key value pairs")
+            await self.send_line(
+                writer, ERROR_CODE, "ERR MXsettings requires key value pairs"
+            )
             return
         for k, v in zip(toks[::2], toks[1::2]):
             self.params.mx.values[k] = v
@@ -666,17 +732,24 @@ class CamserverSimulator:
             self.params.threshold.trim_file = trim_file
             self.params.threshold.gain = "mid"
             self.params.threshold.vcmp = round(random.uniform(0.400, 0.900), 3)
-            await self.send_line(writer, ACK_CODE_OK_GENERIC, f"OK /tmp/setthreshold.cmd")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, "OK /tmp/setthreshold.cmd"
+            )
+
         return handler
 
     async def cmd_set_threshold(self, args: str, writer: asyncio.StreamWriter):
         if not args:
             t = self.params.threshold
             if t.threshold_eV is None:
-                await self.send_line(writer, ACK_CODE_OK_GENERIC, "Threshold has not been set")
+                await self.send_line(
+                    writer, ACK_CODE_OK_GENERIC, "Threshold has not been set"
+                )
             else:
-                msg = (f"Settings: {t.gain or 'mid'} gain; threshold: {t.threshold_eV} eV; "
-                       f"vcmp: {t.vcmp or 0:.3f} V Trim file: {t.trim_file}")
+                msg = (
+                    f"Settings: {t.gain or 'mid'} gain; threshold: {t.threshold_eV} eV; "
+                    f"vcmp: {t.vcmp or 0:.3f} V Trim file: {t.trim_file}"
+                )
                 await self.send_line(writer, ACK_CODE_OK_GENERIC, msg)
             return
         toks = args.split()
@@ -686,15 +759,20 @@ class CamserverSimulator:
                 thr = int(toks[0])
                 if thr == 0:
                     self.params.threshold = ThresholdSettings()
-                    await self.send_line(writer, ACK_CODE_OK_GENERIC, "Threshold invalidated")
+                    await self.send_line(
+                        writer, ACK_CODE_OK_GENERIC, "Threshold invalidated"
+                    )
                     return
                 self.params.threshold.threshold_eV = thr
                 self.params.threshold.incident_energy_eV = thr * 2
                 self.params.threshold.gain = "mid"
                 self.params.threshold.vcmp = round(random.uniform(0.400, 0.900), 3)
                 self.params.threshold.trim_file = f"/tmp/trim_thr{thr}.bin"
-                await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                     f"Setting the threshold: {self.params.threshold.trim_file}")
+                await self.send_line(
+                    writer,
+                    ACK_CODE_OK_GENERIC,
+                    f"Setting the threshold: {self.params.threshold.trim_file}",
+                )
             except ValueError:
                 await self.send_line(writer, ERROR_CODE, "ERR invalid threshold")
             return
@@ -720,7 +798,9 @@ class CamserverSimulator:
                 gain = key
                 i += 1
                 if i >= len(toks):
-                    await self.send_line(writer, ERROR_CODE, "ERR missing threshold after gain")
+                    await self.send_line(
+                        writer, ERROR_CODE, "ERR missing threshold after gain"
+                    )
                     return
                 try:
                     threshold = int(toks[i])
@@ -746,18 +826,23 @@ class CamserverSimulator:
         t.gain = gain or "mid"
         t.vcmp = round(random.uniform(0.400, 0.900), 3)
         t.trim_file = f"/tmp/trim_energy{incident}_thr{threshold}.bin"
-        await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                             f"Setting the threshold: {t.trim_file}")
+        await self.send_line(
+            writer, ACK_CODE_OK_GENERIC, f"Setting the threshold: {t.trim_file}"
+        )
 
     async def cmd_set_energy(self, args: str, writer: asyncio.StreamWriter):
         if not args:
             t = self.params.threshold
             if t.threshold_eV is None:
-                await self.send_line(writer, ACK_CODE_OK_GENERIC, "Threshold has not been set")
+                await self.send_line(
+                    writer, ACK_CODE_OK_GENERIC, "Threshold has not been set"
+                )
             else:
-                msg = (f"Energy setting: {t.incident_energy_eV} eV Settings: {t.gain or 'mid'} gain; "
-                       f"threshold: {t.threshold_eV} eV; vcmp: {t.vcmp or 0:.3f} V "
-                       f"Trim file: {t.trim_file}")
+                msg = (
+                    f"Energy setting: {t.incident_energy_eV} eV Settings: {t.gain or 'mid'} gain; "
+                    f"threshold: {t.threshold_eV} eV; vcmp: {t.vcmp or 0:.3f} V "
+                    f"Trim file: {t.trim_file}"
+                )
                 await self.send_line(writer, ACK_CODE_OK_GENERIC, msg)
             return
         try:
@@ -771,8 +856,9 @@ class CamserverSimulator:
             t.gain = "mid"
             t.vcmp = round(random.uniform(0.400, 0.900), 3)
             t.trim_file = f"/tmp/trim_energy{energy}_thr{threshold}.bin"
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Setting the energy: {t.trim_file}")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, f"Setting the energy: {t.trim_file}"
+            )
         except ValueError:
             await self.send_line(writer, ERROR_CODE, "ERR invalid energy value")
 
@@ -812,53 +898,76 @@ class CamserverSimulator:
             await self.send_line(writer, ACK_CODE_OK_GENERIC, "none")
         else:
             self.params.flatfield_file = args.strip()
-            await self.send_line(writer, ACK_CODE_OK_GENERIC, self.params.flatfield_file)
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, self.params.flatfield_file
+            )
 
     async def cmd_ratecorr_lutdir(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            msg = (f"RateCorrLUTDirectory is {self.params.ratecorr_dir or 'off'}"
-                   if self.params.ratecorr_dir else "RateCorrLUTDirectory is off")
+            msg = (
+                f"RateCorrLUTDirectory is {self.params.ratecorr_dir or 'off'}"
+                if self.params.ratecorr_dir
+                else "RateCorrLUTDirectory is off"
+            )
             await self.send_line(writer, ACK_CODE_OK_GENERIC, msg)
             return
         if args.strip() in ("0", "off"):
             self.params.ratecorr_dir = None
-            await self.send_line(writer, ACK_CODE_OK_GENERIC, "Disabling LUT based correction")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, "Disabling LUT based correction"
+            )
         else:
             self.params.ratecorr_dir = args.strip()
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"RateCorrLUTDirectory is {self.params.ratecorr_dir}")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"RateCorrLUTDirectory is {self.params.ratecorr_dir}",
+            )
 
     async def cmd_readout_time(self, args: str, writer: asyncio.StreamWriter):
         ms = self.readout_time * 1000.0
-        await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                             f"Detector readout time [ms]: {ms:.3f}")
+        await self.send_line(
+            writer, ACK_CODE_OK_GENERIC, f"Detector readout time [ms]: {ms:.3f}"
+        )
 
     async def cmd_set_retrigger(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 "Retrigger mode is set" if self.params.retrigger_mode
-                                 else "Retrigger mode is not set")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                "Retrigger mode is set"
+                if self.params.retrigger_mode
+                else "Retrigger mode is not set",
+            )
             return
         val = args.strip()
         if val not in ("0", "1"):
             await self.send_line(writer, ERROR_CODE, "ERR invalid retrigger mode")
             return
         self.params.retrigger_mode = val == "1"
-        await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                             "Retrigger mode is set" if self.params.retrigger_mode
-                             else "Retrigger mode is not set")
+        await self.send_line(
+            writer,
+            ACK_CODE_OK_GENERIC,
+            "Retrigger mode is set"
+            if self.params.retrigger_mode
+            else "Retrigger mode is not set",
+        )
 
     async def cmd_gap_fill(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Detector gap-fill is: {self.params.gap_fill}")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"Detector gap-fill is: {self.params.gap_fill}",
+            )
             return
         if args.strip() not in ("0", "-1"):
             await self.send_line(writer, ERROR_CODE, "ERR invalid GapFill (0 or -1)")
             return
         self.params.gap_fill = int(args.strip())
-        await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                             f"Detector gap-fill is: {self.params.gap_fill}")
+        await self.send_line(
+            writer, ACK_CODE_OK_GENERIC, f"Detector gap-fill is: {self.params.gap_fill}"
+        )
 
     async def cmd_thread(self, args: str, writer: asyncio.StreamWriter):
         # Provide temperature and humidity (dummy)
@@ -868,8 +977,9 @@ class CamserverSimulator:
 
     async def cmd_ack_int(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"{self.params.ack_interval}")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, f"{self.params.ack_interval}"
+            )
             return
         try:
             val = int(args)
@@ -889,22 +999,28 @@ class CamserverSimulator:
 
     async def cmd_deb_time(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Debounce time set to: {self.params.debounce_time:.3f} sec")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"Debounce time set to: {self.params.debounce_time:.3f} sec",
+            )
             return
         try:
             val = float(args)
             if val < 0 or val >= 85:
                 raise ValueError
             self.params.debounce_time = val
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"Debounce time set to: {val:.3f} sec")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, f"Debounce time set to: {val:.3f} sec"
+            )
         except ValueError:
             await self.send_line(writer, ERROR_CODE, "ERR invalid debounce time")
 
     async def cmd_header_string(self, args: str, writer: asyncio.StreamWriter):
         if not args:
-            await self.send_line(writer, ACK_CODE_OK_GENERIC, self.params.header_string or "none")
+            await self.send_line(
+                writer, ACK_CODE_OK_GENERIC, self.params.header_string or "none"
+            )
             return
         s = args.strip()
         if len(s) > 68:
@@ -920,7 +1036,9 @@ class CamserverSimulator:
         try:
             usage = shutil.disk_usage(self.img_path)
             free_k = usage.free // 1024
-            await self.send_line(writer, ACK_CODE_DISKFREE, f"{free_k} 1K blocks available")
+            await self.send_line(
+                writer, ACK_CODE_DISKFREE, f"{free_k} 1K blocks available"
+            )
         except Exception as e:
             await self.send_line(writer, ERROR_CODE, f"ERR df: {e}")
 
@@ -960,12 +1078,16 @@ class CamserverSimulator:
                 secs = float(args.strip())
             except ValueError:
                 pass
-        await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                             f"Resetting module power, sleeping for {secs:.1f} seconds")
+        await self.send_line(
+            writer,
+            ACK_CODE_OK_GENERIC,
+            f"Resetting module power, sleeping for {secs:.1f} seconds",
+        )
         await asyncio.sleep(secs)
         self.params.threshold = ThresholdSettings()
-        await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                             ">>> Threshold settings no longer valid")
+        await self.send_line(
+            writer, ACK_CODE_OK_GENERIC, ">>> Threshold settings no longer valid"
+        )
 
     async def cmd_version(self, args: str, writer: asyncio.StreamWriter):
         await self.send_line(writer, ACK_CODE_VERSION, self.version_string)
@@ -982,9 +1104,12 @@ class CamserverSimulator:
     async def cmd_state(self, args: str, writer: asyncio.StreamWriter):
         async with self.lock:
             s = self.state
-            await self.send_line(writer, ACK_CODE_OK_GENERIC,
-                                 f"running={s.running} armed={s.armed} ext={s.external_mode} "
-                                 f"idx={s.current_index} last={s.last_image_path}")
+            await self.send_line(
+                writer,
+                ACK_CODE_OK_GENERIC,
+                f"running={s.running} armed={s.armed} ext={s.external_mode} "
+                f"idx={s.current_index} last={s.last_image_path}",
+            )
 
     async def cmd_trigger(self, args: str, writer: asyncio.StreamWriter):
         if not self.state.external_mode:
@@ -995,11 +1120,15 @@ class CamserverSimulator:
 
     # ---------- Server & Connection Handling ----------
 
-    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def handle_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ):
         addr = writer.get_extra_info("peername")
         self.clients.append(writer)
         try:
-            await self.info(writer, "Pilatus 3 Camserver Simulator (type HELP for list)")
+            await self.info(
+                writer, "Pilatus 3 Camserver Simulator (type HELP for list)"
+            )
             await self.info(writer, f"Connected from {addr}")
             await self.info(writer, f"Terminator set to repr:{repr(self.terminator)}")
             while True:
@@ -1014,7 +1143,9 @@ class CamserverSimulator:
                 args = parts[1] if len(parts) > 1 else ""
                 handler = self.commands.get(cmd)
                 if not handler:
-                    await self.send_line(writer, ERROR_CODE, f"ERR UnknownCommand {cmd}")
+                    await self.send_line(
+                        writer, ERROR_CODE, f"ERR UnknownCommand {cmd}"
+                    )
                     continue
                 try:
                     await handler(args, writer)
@@ -1022,7 +1153,9 @@ class CamserverSimulator:
                     break
                 except Exception as e:
                     self.logger.exception("Error handling command %s", cmd)
-                    await self.send_line(writer, ERROR_CODE, f"ERR Exception {type(e).__name__}")
+                    await self.send_line(
+                        writer, ERROR_CODE, f"ERR Exception {type(e).__name__}"
+                    )
         finally:
             if writer in self.clients:
                 self.clients.remove(writer)
@@ -1065,19 +1198,29 @@ class CamserverSimulator:
 
 # ------------------ Argument Parsing & Main ------------------
 
+
 def parse_args():
     ap = argparse.ArgumentParser(description="Pilatus 3 Camserver Simulator")
     ap.add_argument("--xsize", type=int, default=487, help="Sensor width in pixels")
     ap.add_argument("--ysize", type=int, default=195, help="Sensor height in pixels")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8888)
-    ap.add_argument("--manual-triggers", action="store_true",
-                    help="Require manual TRIGGER command for external modes")
-    ap.add_argument("--readout-time", type=float, default=DEFAULT_READOUT_TIME,
-                    help="Simulated readout time (sec)")
+    ap.add_argument(
+        "--manual-triggers",
+        action="store_true",
+        help="Require manual TRIGGER command for external modes",
+    )
+    ap.add_argument(
+        "--readout-time",
+        type=float,
+        default=DEFAULT_READOUT_TIME,
+        help="Simulated readout time (sec)",
+    )
     ap.add_argument("--log-level", default="INFO")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    ap.add_argument("--terminator", default="\\n", help="Line terminator for commands and responses")
+    ap.add_argument(
+        "--terminator", default="\\n", help="Line terminator for commands and responses"
+    )
     return ap.parse_args()
 
 
@@ -1085,7 +1228,7 @@ def main():
     args = parse_args()
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -1097,7 +1240,7 @@ def main():
         terminator=args.terminator,
         manual_triggers=args.manual_triggers,
         readout_time=args.readout_time,
-        loop=loop
+        loop=loop,
     )
 
     def shutdown():
