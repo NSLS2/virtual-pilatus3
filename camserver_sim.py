@@ -221,62 +221,67 @@ class CamserverSimulator:
         self.commands: Dict[
             str, Callable[[str, asyncio.StreamWriter], Awaitable[None]]
         ] = {
-            "Exposure": self.cmd_exposure,
-            "ExtTrigger": self.cmd_ext_trigger,
-            "ExtMtrigger": self.cmd_ext_mtrigger,
-            "ExtEnable": self.cmd_ext_enable,
-            "ExpTime": self.cmd_exp_time,
-            "ExpPeriod": self.cmd_exp_period,
-            "ImgPath": self.cmd_img_path,
-            "NImages": self.cmd_n_images,
-            "Delay": self.cmd_delay,
-            "NExpFrame": self.cmd_n_exp_frame,
-            "MXsettings": self.cmd_mxsettings,
-            "SetCu": self.cmd_set_element("Cu"),
-            "SetMo": self.cmd_set_element("Mo"),
-            "SetCr": self.cmd_set_element("Cr"),
-            "SetFe": self.cmd_set_element("Fe"),
-            "SetAg": self.cmd_set_element("Ag"),
-            "SetGa": self.cmd_set_element("Ga"),
-            "SetThreshold": self.cmd_set_threshold,
-            "SetEnergy": self.cmd_set_energy,
-            "K": self.cmd_k,
+            "tau": self.cmd_tau,
+            "exposure": self.cmd_exposure,
+            "exttrigger": self.cmd_ext_trigger,
+            "extmtrigger": self.cmd_ext_mtrigger,
+            "extenable": self.cmd_ext_enable,
+            "exptime": self.cmd_exp_time,
+            "expperiod": self.cmd_exp_period,
+            "imgpath": self.cmd_img_path,
+            "nimages": self.cmd_n_images,
+            "delay": self.cmd_delay,
+            "nexpframe": self.cmd_n_exp_frame,
+            "mxsettings": self.cmd_mxsettings,
+            "setcu": self.cmd_set_element("Cu"),
+            "setmo": self.cmd_set_element("Mo"),
+            "setcr": self.cmd_set_element("Cr"),
+            "setfe": self.cmd_set_element("Fe"),
+            "setag": self.cmd_set_element("Ag"),
+            "setga": self.cmd_set_element("Ga"),
+            "setthreshold": self.cmd_set_threshold,
+            "setenergy": self.cmd_set_energy,
+            "k": self.cmd_k,
             "camcmd": self.cmd_camcmd,  # expects argument 'K'
-            "LdBadPixMap": self.cmd_ld_badpix,
-            "LdFlatField": self.cmd_ld_flatfield,
-            "RateCorrLUTDir": self.cmd_ratecorr_lutdir,
-            "ReadoutTime": self.cmd_readout_time,
-            "SetRetriggerMode": self.cmd_set_retrigger,
-            "GapFill": self.cmd_gap_fill,
-            "THread": self.cmd_thread,
-            "SetAckInt": self.cmd_ack_int,
-            "ResetCam": self.cmd_reset_cam,
-            "DebTime": self.cmd_deb_time,
-            "HeaderString": self.cmd_header_string,
-            "Exit": self.cmd_exit,
-            "Quit": self.cmd_exit,
-            "Df": self.cmd_df,
-            "ExpEnd": self.cmd_exp_end,
-            "CamSetup": self.cmd_cam_setup,
-            "Telemetry": self.cmd_telemetry,
-            "ResetModulePower": self.cmd_reset_module_power,
-            "Version": self.cmd_version,
-            "ShowPID": self.cmd_show_pid,
+            "ldbadpixmap": self.cmd_ld_badpix,
+            "ldflatfield": self.cmd_ld_flatfield,
+            "ratecorrlutdir": self.cmd_ratecorr_lutdir,
+            "readouttime": self.cmd_readout_time,
+            "setretriggermode": self.cmd_set_retrigger,
+            "gapfill": self.cmd_gap_fill,
+            "thread": self.cmd_thread,
+            "setackint": self.cmd_ack_int,
+            "resetcam": self.cmd_reset_cam,
+            "debtime": self.cmd_deb_time,
+            "headerstring": self.cmd_header_string,
+            "exit": self.cmd_exit,
+            "quit": self.cmd_exit,
+            "df": self.cmd_df,
+            "expend": self.cmd_exp_end,
+            "camsetup": self.cmd_cam_setup,
+            "telemetry": self.cmd_telemetry,
+            "resetmodulepower": self.cmd_reset_module_power,
+            "version": self.cmd_version,
+            "showpid": self.cmd_show_pid,
             # Helper / simulator additions
-            "HELP": self.cmd_help,
-            "STATE": self.cmd_state,
-            "TRIGGER": self.cmd_trigger,
-            "ABORT": self.cmd_k,
+            "help": self.cmd_help,
+            "state": self.cmd_state,
+            "trigger": self.cmd_trigger,
+            "abort": self.cmd_k,
         }
 
     # ---------- Utility Output Methods ----------
 
     async def send_line(self, writer: asyncio.StreamWriter, code: int, text: str):
+        if code != ERROR_CODE:
+            text = f"OK {text}"
         line = f"{code} {text}{self.terminator}"
         writer.write(line.encode())
         await writer.drain()
 
     async def broadcast_ack(self, code: int, text: str):
+        if code != ERROR_CODE:
+            text = f"OK {text}"
         dead = []
         for w in self.clients:
             try:
@@ -312,11 +317,16 @@ class CamserverSimulator:
             ext = p.suffix
         if not ext:
             ext = ".raw"
-        if total > 1:
-            num = f"{index + 1:06d}"
-            filename = f"{stem}_{num}{ext}"
-        else:
-            filename = f"{stem}{ext}"
+
+        new_num = index
+        try:
+            base_filename, start_num = stem.rsplit("_", 1)
+            new_num = int(start_num) + index
+            filename = f"{base_filename}_{str(new_num).zfill(len(start_num))}{ext}"
+        except Exception as e:
+            self.logger.warning("Failed to parse start number from %s: %s", stem, e)
+            filename = f"{stem}_{new_num:06d}{ext}"
+
         return directory / filename
 
     # ---------- Exposure Core ----------
@@ -581,6 +591,9 @@ class CamserverSimulator:
         return last
 
     # ---------- Command Implementations ----------
+
+    async def cmd_tau(self, args: str, writer: asyncio.StreamWriter):
+        await self.send_line(writer, ACK_CODE_OK_GENERIC, "TAU command received")
 
     async def cmd_exposure(self, args: str, writer: asyncio.StreamWriter):
         base = args.strip() or "image.cbf"
@@ -1098,8 +1111,9 @@ class CamserverSimulator:
     # --------- Helper / Debug Commands ---------
 
     async def cmd_help(self, args: str, writer: asyncio.StreamWriter):
+        # Provide list of available lowercase commands
         names = " ".join(sorted(self.commands.keys()))
-        await self.send_line(writer, ACK_CODE_OK_GENERIC, f"Commands: {names}")
+        await self.send_line(writer, ACK_CODE_OK_GENERIC, f"commands: {names}")
 
     async def cmd_state(self, args: str, writer: asyncio.StreamWriter):
         async with self.lock:
@@ -1132,14 +1146,15 @@ class CamserverSimulator:
             await self.info(writer, f"Connected from {addr}")
             await self.info(writer, f"Terminator set to repr:{repr(self.terminator)}")
             while True:
-                raw_line = await self._read_command(reader)
+                raw_line = await reader.readline()
                 if raw_line is None:
                     break
-                raw = raw_line.strip()
+                raw = raw_line.decode("utf-8").strip()
+                self.logger.debug(f"Received command: {raw}")
                 if not raw:
                     continue
                 parts = raw.split(maxsplit=1)
-                cmd = parts[0]
+                cmd = parts[0].lower()
                 args = parts[1] if len(parts) > 1 else ""
                 handler = self.commands.get(cmd)
                 if not handler:
@@ -1165,28 +1180,6 @@ class CamserverSimulator:
             except Exception:
                 pass
             self.logger.info("Client disconnected %s", addr)
-
-    async def _read_command(self, reader: asyncio.StreamReader) -> Optional[str]:
-        """Read bytes until the configured terminator sequence is encountered.
-
-        Returns the decoded string without the terminator. If EOF occurs and no
-        bytes were read, returns None. If EOF with partial data, returns that
-        partial data (mirrors typical line-based behavior).
-        """
-        term = self._terminator_bytes
-        buf = bytearray()
-        term_len = len(term)
-        while True:
-            chunk = await reader.read(1)
-            if not chunk:  # EOF
-                if not buf:
-                    return None
-                else:
-                    return buf.decode(errors="replace")
-            buf.extend(chunk)
-            if len(buf) >= term_len and buf[-term_len:] == term:
-                # Strip terminator
-                return buf[:-term_len].decode(errors="replace")
 
     async def start(self):
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
@@ -1219,7 +1212,9 @@ def parse_args():
     ap.add_argument("--log-level", default="INFO")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument(
-        "--terminator", default="\\n", help="Line terminator for commands and responses"
+        "--terminator",
+        default="\\n",
+        help="Line terminator for responses sent from simulator",
     )
     return ap.parse_args()
 
