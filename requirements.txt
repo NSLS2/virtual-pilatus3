@@ -1,5 +1,0 @@
-numpy
-tiffile
-ruff
-import-linter
-pre-commit
