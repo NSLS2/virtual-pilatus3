@@ -3,3 +3,6 @@ venv/
 *.pyo
 *.pyd
 __pycache__/
+# pixi environments
+.pixi/*
+!.pixi/config.toml

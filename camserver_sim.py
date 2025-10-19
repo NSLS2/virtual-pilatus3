@@ -92,9 +92,9 @@ from typing import Dict, Optional, Callable, Awaitable, List
 
 # Used for generating random image data
 import numpy as np
-import tiffile as tf
+import tifffile as tf
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # ------------------ Constants ------------------
 
@@ -1209,7 +1209,7 @@ def parse_args():
         default=DEFAULT_READOUT_TIME,
         help="Simulated readout time (sec)",
     )
-    ap.add_argument("--log-level", default="INFO")
+    ap.add_argument("--debug", action="store_true", help="Enable debug logging")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument(
         "--terminator",
@@ -1222,7 +1222,7 @@ def parse_args():
 def main():
     args = parse_args()
     logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     loop = asyncio.new_event_loop()
