@@ -18,6 +18,7 @@ jobs:
         with:
           persist-credentials: false
 
+      # These versions support the pixi.lock v7 format.
       - name: Setup Pixi
         uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f  # v0.10.0
         with:
